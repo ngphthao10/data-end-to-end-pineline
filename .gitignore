@@ -1,0 +1,6 @@
+kafka_2.13-3.9.0/
+frontend/node_modules/
+cdc_env
+.claude
+backend/venv
+frontend/.next
