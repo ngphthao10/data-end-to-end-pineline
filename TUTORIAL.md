@@ -18,6 +18,13 @@ Hướng dẫn từng bước để xây dựng hệ thống CDC hoàn chỉnh v
 ## Kiến trúc hệ thống
 
 ```
+┌──────────────┐
+│    Flink      │
+│ Data Generator│
+│               │
+└──────┬───────┘
+       │
+       ▼
 ┌──────────────┐      ┌────────────┐      ┌───────────┐
 │   MySQL      │─────▶│  Debezium  │─────▶│   Kafka   │
 │  (Source)    │      │  Connector │      │  (Stream) │
@@ -31,14 +38,7 @@ Hướng dẫn từng bước để xây dựng hệ thống CDC hoàn chỉnh v
 │  Consumer    │───────────────────────▶│   (Target)   │   │ (Monitor)    │
 └──────────────┘                        └──────────────┘   └──────────────┘
 
-┌──────────────┐
-│    Flink     │
-│ Data Generator│
-│              │
-└──────┬───────┘
-       │
-       ▼
-   (MySQL)
+
 ```
 
 ---

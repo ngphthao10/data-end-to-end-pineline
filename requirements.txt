@@ -1,4 +1,7 @@
-kafka-python
-sqlalchemy
-psycopg2-binary
-pymysql
+Faker==37.12.0
+kafka-python==2.2.15
+psycopg2-binary==2.9.11
+PyMySQL==1.1.2
+SQLAlchemy==2.0.44
+typing_extensions==4.15.0
+tzdata==2025.2

@@ -27,7 +27,7 @@ services:
       - cdc-network
 
   mysql:
-    image: quay.io/debezium/example-mysql:3.0
+    image: quay.io/debezium/example-mysql:3.0 
     container_name: mysql
     ports:
       - "3306:3306"

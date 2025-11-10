@@ -23,33 +23,43 @@ cdc_events_queue = queue.Queue(maxsize=100)
 # Kafka consumer in background thread
 def consume_cdc_events():
     """Background thread to consume Kafka CDC events."""
-    consumer = KafkaConsumer(
-        'dbserver1.inventory.customers',
-        bootstrap_servers='localhost:9092',
-        auto_offset_reset='latest',  # Only get new events
-        enable_auto_commit=True,
-        group_id='web-dashboard-consumer'
-    )
+    try:
+        print("Starting Kafka consumer...")
+        consumer = KafkaConsumer(
+            'dbserver1.inventory.customers',
+            bootstrap_servers='localhost:9092',
+            auto_offset_reset='earliest',  # Read from beginning
+            enable_auto_commit=True,
+            group_id='web-dashboard-consumer',
+            value_deserializer=lambda m: json.loads(m.decode('utf-8')) if m else None
+        )
+        print(f"Kafka consumer connected successfully. Topics: {consumer.topics()}")
 
-    for message in consumer:
-        if message.value:
-            try:
-                event = json.loads(message.value.decode('utf-8'))
-                payload = event.get('payload', {})
+        for message in consumer:
+            if message.value:
+                try:
+                    event = message.value
+                    payload = event.get('payload', {})
 
-                # Add to queue
-                if cdc_events_queue.full():
-                    cdc_events_queue.get()  # Remove oldest
+                    # Add to queue
+                    if cdc_events_queue.full():
+                        cdc_events_queue.get()  # Remove oldest
 
-                cdc_events_queue.put({
-                    'op': payload.get('op'),
-                    'before': payload.get('before'),
-                    'after': payload.get('after'),
-                    'timestamp': payload.get('ts_ms'),
-                    'source': payload.get('source', {}).get('table')
-                })
-            except Exception as e:
-                print(f"Error processing CDC event: {e}")
+                    event_data = {
+                        'op': payload.get('op'),
+                        'before': payload.get('before'),
+                        'after': payload.get('after'),
+                        'timestamp': payload.get('ts_ms'),
+                        'source': payload.get('source', {}).get('table')
+                    }
+                    cdc_events_queue.put(event_data)
+                    print(f"CDC Event captured: op={event_data['op']}, source={event_data['source']}")
+                except Exception as e:
+                    print(f"Error processing CDC event: {e}")
+    except Exception as e:
+        print(f"Error initializing Kafka consumer: {e}")
+        import traceback
+        traceback.print_exc()
 
 # Start background thread
 consumer_thread = threading.Thread(target=consume_cdc_events, daemon=True)

@@ -311,7 +311,7 @@ export default function Home() {
           {/* PostgreSQL */}
           <div className="bg-white border rounded-lg overflow-hidden">
             <div className="px-4 py-3 border-b bg-gray-50">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
                 <Database className="w-4 h-4 text-gray-600" />
                 <span className="text-sm font-medium text-gray-900">PostgreSQL Target</span>
                 <span className="text-xs text-gray-500">({postgresCustomers.length})</span>
@@ -344,11 +344,11 @@ export default function Home() {
                 <tbody>
                   {postgresCustomers.map((customer) => (
                     <tr key={customer.id} className="border-b hover:bg-gray-50">
-                      <td className="px-4 py-2 font-mono text-xs text-gray-900">{customer.id}</td>
-                      <td className="px-4 py-2 text-gray-900">
+                      <td className="px-4 py-3 font-mono text-xs text-gray-900">{customer.id}</td>
+                      <td className="px-4 py-3 text-gray-900">
                         {customer.first_name} {customer.last_name}
                       </td>
-                      <td className="px-4 py-2 text-gray-600 text-xs">{customer.email}</td>
+                      <td className="px-4 py-3 text-gray-600 text-xs">{customer.email}</td>
                     </tr>
                   ))}
                 </tbody>
