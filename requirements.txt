@@ -5,3 +5,14 @@ PyMySQL==1.1.2
 SQLAlchemy==2.0.44
 typing_extensions==4.15.0
 tzdata==2025.2
+pandas
+matplotlib
+numpy
+seaborn
+Flask==3.0.0
+Flask-CORS==4.0.0
+python-dotenv==1.0.0
+jupyterlab
+ipython
+pytest
+pytest-cov

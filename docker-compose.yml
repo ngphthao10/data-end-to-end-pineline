@@ -1,4 +1,5 @@
 services:
+  # Message Broker Infrastructure
   zookeeper:
     image: quay.io/debezium/zookeeper:3.0
     container_name: zookeeper
@@ -26,31 +27,55 @@ services:
     networks:
       - cdc-network
 
-  mysql:
-    image: quay.io/debezium/example-mysql:3.0 
-    container_name: mysql
-    ports:
-      - "3306:3306"
-    environment:
-      - MYSQL_ROOT_PASSWORD=debezium
-      - MYSQL_USER=mysqluser
-      - MYSQL_PASSWORD=mysqlpw
-    networks:
-      - cdc-network
-
-  postgres:
-    image: postgres:latest
-    container_name: postgres
+  # Source Database - E-commerce operational database
+  postgres-source:
+    image: postgres:15
+    container_name: postgres-source
     ports:
       - "5432:5432"
     environment:
-      - POSTGRES_PASSWORD=mysecretpassword
+      - POSTGRES_DB=ecommerce_source
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=logical"  # Required for CDC
+    volumes:
+      - postgres-source-data:/var/lib/postgresql/data
+      - ./init_scripts:/docker-entrypoint-initdb.d
     networks:
       - cdc-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
+  # Target Warehouse - Dimensional data warehouse
+  postgres-warehouse:
+    image: postgres:15
+    container_name: postgres-warehouse
+    ports:
+      - "5433:5432"
+    environment:
+      - POSTGRES_DB=ecommerce_warehouse
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - postgres-warehouse-data:/var/lib/postgresql/data
+    networks:
+      - cdc-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # CDC Connector - Debezium
   connect:
     image: quay.io/debezium/connect:3.0
-    container_name: connect
+    container_name: debezium-connect
     ports:
       - "8083:8083"
     environment:
@@ -61,11 +86,11 @@ services:
       - BOOTSTRAP_SERVERS=kafka:29092
     depends_on:
       - kafka
-      - mysql
-      - postgres
+      - postgres-source
     networks:
       - cdc-network
 
+  # Stream Processing - Apache Flink (Optional)
   jobmanager:
     image: flink:1.18-java11
     container_name: flink-jobmanager
@@ -93,6 +118,75 @@ services:
         taskmanager.numberOfTaskSlots: 2
     networks:
       - cdc-network
+
+  # ETL Pipeline - Python Worker
+  etl-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.etl
+    container_name: etl-worker
+    volumes:
+      - .:/app
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - SOURCE_DB_HOST=postgres-source
+      - SOURCE_DB_PORT=5432
+      - SOURCE_DB_NAME=ecommerce_source
+      - SOURCE_DB_USER=postgres
+      - SOURCE_DB_PASSWORD=postgres
+      - WAREHOUSE_DB_HOST=postgres-warehouse
+      - WAREHOUSE_DB_PORT=5432
+      - WAREHOUSE_DB_NAME=ecommerce_warehouse
+      - WAREHOUSE_DB_USER=postgres
+      - WAREHOUSE_DB_PASSWORD=postgres
+    depends_on:
+      - kafka
+      - postgres-source
+      - postgres-warehouse
+    networks:
+      - cdc-network
+    command: python /app/etl_pipeline.py
+
+  # Flask API - Business Metrics
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: flask-api
+    ports:
+      - "5000:5000"
+    volumes:
+      - .:/app
+    environment:
+      - WAREHOUSE_DB_HOST=postgres-warehouse
+      - WAREHOUSE_DB_PORT=5432
+      - WAREHOUSE_DB_NAME=ecommerce_warehouse
+      - WAREHOUSE_DB_USER=postgres
+      - WAREHOUSE_DB_PASSWORD=postgres
+    depends_on:
+      - postgres-warehouse
+    networks:
+      - cdc-network
+    command: python /app/api/app.py
+
+  # Frontend - Next.js Dashboard
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: nextjs-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    networks:
+      - cdc-network
+    environment:
+      - NODE_ENV=production
+
+volumes:
+  postgres-source-data:
+  postgres-warehouse-data:
 
 networks:
   cdc-network:
