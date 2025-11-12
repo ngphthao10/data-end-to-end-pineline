@@ -1,185 +1,176 @@
-# CDC (Change Data Capture) Demo with Debezium, Kafka, MySQL & PostgreSQL
+# E-commerce Data Warehouse với CDC (Change Data Capture)
 
-Complete CDC system với Web Dashboard và Data Generator.
+## Tổng Quan
 
-## Tính năng
+Dự án này xây dựng một hệ thống Data Warehouse cho E-commerce, sử dụng CDC để đồng bộ dữ liệu thời gian thực từ database nguồn (source) sang data warehouse. Hệ thống theo dõi lịch sử thay đổi của khách hàng và sản phẩm theo chuẩn SCD Type 2.
 
-- ✅ Real-time CDC replication (MySQL → PostgreSQL)
-- ✅ Web Dashboard (Flask + Next.js + Tailwind CSS)
-- ✅ Data Stream Generator (Apache Flink-style)
-- ✅ Python CDC Consumer với schema evolution support
-- ✅ Docker Compose setup (1 command)
-- ✅ 100 realistic sample customers
-
-## Kiến trúc
+## Kiến Trúc Hệ Thống
 
 ```
-MySQL ──→ Debezium ──→ Kafka ──→ Python CDC Consumer ──→ PostgreSQL
-   ↑                      ↓                                  ↓
-   │                 Web Dashboard                      Flink Generator
-   └──────────────────────┴────────────────────────────────────┘
-                    Real-time CDC Pipeline
+Source DB (PostgreSQL)
+    ↓ [CDC - Debezium]
+Kafka (Message Broker)
+    ↓ [ETL Worker]
+Warehouse DB (PostgreSQL)
+    ↓ [Flask API]
+Frontend Dashboard (Next.js)
 ```
 
-## Quick Start
-
-### 1. Start tất cả services
-
-```bash
-docker-compose up -d
-```
-
-### 2. Setup database và connector
-
-```bash
-./setup_realistic_data.sh
-```
-
-### 3. Run CDC consumer
-
-```bash
-source cdc_env/bin/activate
-python cdc_schema_evolution.py
-```
-
-### 4. Launch Web Dashboard
-
-```bash
-./start_dashboard.sh
-```
-
-Mở browser: **http://localhost:3000**
-
-### 5. Generate data stream (optional)
-
-```bash
-./start_data_generator.sh
-```
-
-## Hướng dẫn chi tiết
-
-Xem **[TUTORIAL.md](TUTORIAL.md)** để có hướng dẫn từng bước đầy đủ.
-
-## Project Structure
+## Cấu Trúc Thư Mục
 
 ```
 cdc_kafka/
-├── docker-compose.yml              # All services (Kafka, MySQL, PostgreSQL, Flink)
-├── cdc_schema_evolution.py         # Python CDC consumer
-├── flink_simple_generator.py       # Data stream generator
-├── setup_realistic_data.sh         # Automated setup script
-├── start_dashboard.sh              # Start web dashboard
-├── start_data_generator.sh         # Start data generator
-│
-├── backend/                        # Flask API
-│   ├── app.py
-│   └── requirements.txt
-│
-├── frontend/                       # Next.js + Tailwind CSS
+├── api/
+│   └── app.py                    # Flask API - cung cấp REST endpoints
+├── frontend/
 │   ├── app/
-│   │   └── page.tsx               # Main dashboard
-│   ├── package.json
-│   └── tailwind.config.js
-│
-├── TUTORIAL.md                     # 📖 Complete step-by-step guide
-└── README.md                       # This file
+│   │   ├── page.tsx              # Trang chủ - Dashboard
+│   │   ├── analytics/            # Trang phân tích doanh thu
+│   │   ├── cdc-monitoring/       # Theo dõi CDC sync
+│   │   └── scd-history/          # Xem lịch sử thay đổi
+│   ├── components/               # React components tái sử dụng
+│   └── package.json
+├── init_scripts/                 # SQL scripts khởi tạo database
+├── db_config.py                  # Cấu hình kết nối database
+├── etl_pipeline.py               # ETL Worker - xử lý Kafka messages
+├── scd_processor.py              # Logic xử lý SCD Type 2
+├── generate_data.py              # Script tạo dữ liệu mẫu
+├── docker-compose.yml            # Cấu hình Docker services
+├── Dockerfile.api                # Docker image cho API
+├── Dockerfile.frontend           # Docker image cho Frontend
+├── Dockerfile.etl                # Docker image cho ETL Worker
+└── requirements.txt              # Python dependencies
+
 ```
 
-## Services & Ports
+## Các Thành Phần Chính
 
-| Service | Port | Description |
-|---------|------|-------------|
-| MySQL | 3306 | Source database |
-| PostgreSQL | 5432 | Target database |
-| Kafka | 9092 | Event streaming |
-| Debezium Connect | 8083 | CDC connector |
-| Flask Backend | 5000 | REST API |
-| Next.js Frontend | 3000 | Web Dashboard |
-| Flink JobManager | 8081 | Flink Web UI |
+### 1. Source Database (PostgreSQL)
+- **Port**: 5432
+- **Database**: ecommerce_source
+- Chứa dữ liệu operational:
+  - `customers` - Thông tin khách hàng
+  - `products` - Thông tin sản phẩm
+  - `orders` - Đơn hàng
+  - `order_items` - Chi tiết đơn hàng
 
-## Tech Stack
+### 2. Warehouse Database (PostgreSQL)
+- **Port**: 5433
+- **Database**: ecommerce_warehouse
+- Chứa dữ liệu analytical theo mô hình Star Schema:
+  - **Dimension Tables**:
+    - `dim_customer` - Chiều khách hàng (SCD Type 2)
+    - `dim_product` - Chiều sản phẩm (SCD Type 2)
+    - `dim_date` - Chiều thời gian
+  - **Fact Table**:
+    - `fact_orders` - Bảng fact đơn hàng
 
-**Backend:**
-- Debezium MySQL Connector
-- Apache Kafka
-- Flask REST API
-- Python CDC Consumer
-- SQLAlchemy
+### 3. Kafka + Debezium
+- **Kafka Port**: 9092
+- **Debezium Connect Port**: 8083
+- Chức năng:
+  - Debezium theo dõi thay đổi trên Source DB
+  - Gửi events về Kafka topics
+  - ETL Worker lắng nghe và xử lý
 
-**Frontend:**
-- Next.js 14
-- React 18
-- TypeScript
-- Tailwind CSS
-- Axios
+### 4. ETL Worker (Python)
+- **File**: `etl_pipeline.py`
+- Chức năng:
+  - Consume messages từ Kafka
+  - Xử lý SCD Type 2 cho customers và products
+  - Load dữ liệu vào Warehouse
+- **File liên quan**: `scd_processor.py`
 
-**Data Generation:**
-- Apache Flink (optional)
-- Python Faker library
+### 5. API Backend (Flask)
+- **Port**: 5000
+- **File**: `api/app.py`
+- Endpoints chính:
+  - `/api/metrics/daily-revenue` - Doanh thu theo ngày
+  - `/api/metrics/top-products` - Sản phẩm bán chạy
+  - `/api/metrics/top-customers` - Khách hàng VIP
+  - `/api/cdc/stats` - Thống kê CDC sync
+  - `/api/customers/<id>/history` - Lịch sử khách hàng
+  - `/api/products/<id>/history` - Lịch sử giá sản phẩm
 
-## Quick Commands
+### 6. Frontend Dashboard (Next.js)
+- **Port**: 3000
+- **Framework**: Next.js 14 + TypeScript
+- **Styling**: Tailwind CSS
+- **Charts**: Recharts
+- Các trang:
+  - **Dashboard**: Tổng quan metrics
+  - **Analytics**: Phân tích doanh thu chi tiết
+  - **CDC Monitoring**: Theo dõi đồng bộ dữ liệu
+  - **SCD History**: Xem lịch sử thay đổi khách hàng/sản phẩm
 
-```bash
-# Check connector status
-curl -s localhost:8083/connectors/inventory-connector/status | jq
+## Công Nghệ Sử Dụng
 
-# Monitor Kafka CDC events
-docker exec kafka /kafka/bin/kafka-console-consumer.sh \
-  --bootstrap-server kafka:29092 \
-  --topic dbserver1.inventory.customers \
-  --from-beginning
+### Backend
+- **Python 3.9**
+  - Flask (API framework)
+  - SQLAlchemy (ORM)
+  - kafka-python (Kafka client)
+  - psycopg2 (PostgreSQL driver)
 
-# MySQL console
-docker exec -it mysql mysql -umysqluser -pmysqlpw
+### Frontend
+- **Node.js 18**
+  - Next.js 14
+  - React 18
+  - TypeScript
+  - Tailwind CSS
+  - Recharts (charting library)
+  - Axios (HTTP client)
 
-# PostgreSQL console
-docker exec -it postgres psql -U postgres
+### Infrastructure
+- **Docker & Docker Compose**
+- **PostgreSQL 15** (Source & Warehouse)
+- **Apache Kafka** (Message Broker)
+- **Debezium 3.0** (CDC Platform)
 
-# Check record counts
-docker exec mysql mysql -umysqluser -pmysqlpw -e "SELECT COUNT(*) FROM inventory.customers;"
-docker exec postgres psql -U postgres -c "SELECT COUNT(*) FROM customers;"
+## Luồng Dữ Liệu
 
-# Stop all services
-docker-compose down
-```
+1. **Insert/Update** dữ liệu vào Source DB (customers, products, orders)
+2. **Debezium** phát hiện thay đổi qua PostgreSQL WAL (Write-Ahead Log)
+3. **Kafka** nhận CDC events từ Debezium
+4. **ETL Worker** consume messages và:
+   - Xử lý SCD Type 2 cho dimension tables
+   - Insert vào fact table
+5. **API** query dữ liệu từ Warehouse
+6. **Frontend** hiển thị dashboard và analytics
 
-## Troubleshooting
+## SCD Type 2 Implementation
 
-Xem phần **Troubleshooting** trong [TUTORIAL.md](TUTORIAL.md)
+**Slowly Changing Dimension Type 2** giữ toàn bộ lịch sử thay đổi:
 
-Các vấn đề thường gặp:
-- Port conflicts (PostgreSQL 5432)
-- Kafka connection issues
-- Connector not running
-- Python dependencies
+### Ví dụ: Customer thay đổi địa chỉ
 
-## Use Cases
+| customer_key | customer_id | name | address | valid_from | valid_to | is_current | version |
+|--------------|-------------|------|---------|------------|----------|------------|---------|
+| 1 | 101 | John | HN | 2024-01-01 | 2024-06-01 | FALSE | 1 |
+| 2 | 101 | John | SG | 2024-06-01 | 9999-12-31 | TRUE | 2 |
 
-- **Data Migration**: MySQL → PostgreSQL with zero downtime
-- **Real-time Replication**: Keep databases in sync
-- **Event-Driven Architecture**: React to DB changes
-- **Audit Trail**: Track all data changes
-- **Analytics Pipeline**: Stream data to data warehouse
+- `valid_from/valid_to`: Thời gian record có hiệu lực
+- `is_current`: TRUE cho bản ghi hiện tại
+- `version`: Số thứ tự thay đổi
 
-## Next Steps
+## Metrics & Analytics
 
-- Thêm authentication cho dashboard
-- WebSocket support cho real-time updates
-- Multi-table CDC replication
-- Monitoring với Prometheus + Grafana
-- Deploy lên Kubernetes
+Dashboard cung cấp:
+- **Doanh thu theo ngày/tuần/tháng**
+- **Top sản phẩm bán chạy**
+- **Top khách hàng** (theo lifetime value)
+- **Phân tích theo danh mục sản phẩm**
+- **Trạng thái đồng bộ CDC**
+- **Lịch sử thay đổi giá và thông tin khách hàng**
 
-## Resources
+## Bắt Đầu
 
-- [Complete Tutorial](TUTORIAL.md) - Hướng dẫn từng bước đầy đủ
-- [Debezium Documentation](https://debezium.io/documentation/)
-- [Apache Kafka](https://kafka.apache.org/documentation/)
-- [Next.js Documentation](https://nextjs.org/docs)
+Xem file [TUTORIAL.md](./TUTORIAL.md) để biết cách chạy project.
 
-## License
+## Lưu Ý
 
-MIT - Educational purposes
-
----
-
-**📖 Bắt đầu với [TUTORIAL.md](TUTORIAL.md)**
+- Dữ liệu được lưu trong Docker volumes, không mất khi restart
+- Frontend có hot reload, tự động cập nhật khi sửa code
+- API và ETL cần restart container sau khi sửa code
+- SCD Type 2 giữ toàn bộ lịch sử, không xóa dữ liệu cũ
+- Debezium sử dụng PostgreSQL logical replication (wal_level=logical)
