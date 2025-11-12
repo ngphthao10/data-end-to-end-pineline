@@ -6,7 +6,7 @@ import os
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from db_config import get_warehouse_engine
+from db_config import get_warehouse_engine, get_source_engine
 from sqlalchemy import text
 import logging
 
@@ -17,6 +17,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 warehouse_engine = get_warehouse_engine()
+source_engine = get_source_engine()
 
 
 @app.route('/')
@@ -335,6 +336,229 @@ def product_history(product_id):
 
     except Exception as e:
         logger.error(f"Error in product_history: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/cdc/stats', methods=['GET'])
+def cdc_stats():
+    """Get CDC synchronization statistics"""
+    try:
+        with source_engine.connect() as source_conn, warehouse_engine.connect() as warehouse_conn:
+            # Count records in source
+            source_customers = source_conn.execute(text("SELECT COUNT(*) FROM customers")).scalar()
+            source_products = source_conn.execute(text("SELECT COUNT(*) FROM products")).scalar()
+            source_orders = source_conn.execute(text("SELECT COUNT(*) FROM orders")).scalar()
+
+            # Count current records in warehouse
+            warehouse_customers = warehouse_conn.execute(
+                text("SELECT COUNT(DISTINCT customer_id) FROM dim_customer WHERE is_current = TRUE")
+            ).scalar()
+            warehouse_products = warehouse_conn.execute(
+                text("SELECT COUNT(DISTINCT product_id) FROM dim_product WHERE is_current = TRUE")
+            ).scalar()
+            warehouse_orders = warehouse_conn.execute(
+                text("SELECT COUNT(DISTINCT order_id) FROM fact_orders")
+            ).scalar()
+
+            return jsonify({
+                'success': True,
+                'data': {
+                    'source': {
+                        'customers': source_customers,
+                        'products': source_products,
+                        'orders': source_orders
+                    },
+                    'warehouse': {
+                        'customers': warehouse_customers,
+                        'products': warehouse_products,
+                        'orders': warehouse_orders
+                    },
+                    'in_sync': (
+                        source_customers == warehouse_customers and
+                        source_products == warehouse_products and
+                        source_orders == warehouse_orders
+                    )
+                }
+            })
+    except Exception as e:
+        logger.error(f"Error in cdc_stats: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/cdc/recent-changes', methods=['GET'])
+def recent_changes():
+    """Get recent SCD changes from warehouse"""
+    limit = request.args.get('limit', 20, type=int)
+
+    try:
+        with warehouse_engine.connect() as conn:
+            # Get recent customer changes
+            customer_changes = conn.execute(
+                text("""
+                    SELECT
+                        'customer' as entity_type,
+                        customer_id as entity_id,
+                        first_name || ' ' || last_name as entity_name,
+                        email,
+                        valid_from as change_time,
+                        version,
+                        is_current,
+                        CASE
+                            WHEN version = 1 THEN 'create'
+                            WHEN is_current = FALSE THEN 'update'
+                            ELSE 'current'
+                        END as change_type
+                    FROM dim_customer
+                    ORDER BY valid_from DESC
+                    LIMIT :limit
+                """),
+                {'limit': limit}
+            )
+
+            # Get recent product changes
+            product_changes = conn.execute(
+                text("""
+                    SELECT
+                        'product' as entity_type,
+                        product_id as entity_id,
+                        product_name as entity_name,
+                        price,
+                        valid_from as change_time,
+                        version,
+                        is_current,
+                        CASE
+                            WHEN version = 1 THEN 'create'
+                            WHEN is_current = FALSE THEN 'update'
+                            ELSE 'current'
+                        END as change_type
+                    FROM dim_product
+                    ORDER BY valid_from DESC
+                    LIMIT :limit
+                """),
+                {'limit': limit}
+            )
+
+            customer_data = [
+                {
+                    'entity_type': row[0],
+                    'entity_id': row[1],
+                    'entity_name': row[2],
+                    'email': row[3],
+                    'change_time': str(row[4]),
+                    'version': row[5],
+                    'is_current': row[6],
+                    'change_type': row[7]
+                }
+                for row in customer_changes
+            ]
+
+            product_data = [
+                {
+                    'entity_type': row[0],
+                    'entity_id': row[1],
+                    'entity_name': row[2],
+                    'price': float(row[3]) if row[3] else 0,
+                    'change_time': str(row[4]),
+                    'version': row[5],
+                    'is_current': row[6],
+                    'change_type': row[7]
+                }
+                for row in product_changes
+            ]
+
+            # Combine and sort by change_time
+            all_changes = customer_data + product_data
+            all_changes.sort(key=lambda x: x['change_time'], reverse=True)
+
+            return jsonify({
+                'success': True,
+                'data': all_changes[:limit]
+            })
+
+    except Exception as e:
+        logger.error(f"Error in recent_changes: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/customers', methods=['GET'])
+def get_customers():
+    """Get all current customers from warehouse"""
+    try:
+        with warehouse_engine.connect() as conn:
+            result = conn.execute(
+                text("""
+                    SELECT
+                        customer_id,
+                        first_name,
+                        last_name,
+                        email,
+                        phone,
+                        city,
+                        country
+                    FROM dim_customer
+                    WHERE is_current = TRUE
+                    ORDER BY customer_id
+                """)
+            )
+
+            data = [
+                {
+                    'customer_id': row[0],
+                    'first_name': row[1],
+                    'last_name': row[2],
+                    'email': row[3],
+                    'phone': row[4],
+                    'city': row[5],
+                    'country': row[6]
+                }
+                for row in result
+            ]
+
+            return jsonify({
+                'success': True,
+                'data': data
+            })
+    except Exception as e:
+        logger.error(f"Error in get_customers: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/products', methods=['GET'])
+def get_products():
+    """Get all current products from warehouse"""
+    try:
+        with warehouse_engine.connect() as conn:
+            result = conn.execute(
+                text("""
+                    SELECT
+                        product_id,
+                        product_name,
+                        category,
+                        brand,
+                        price
+                    FROM dim_product
+                    WHERE is_current = TRUE
+                    ORDER BY product_id
+                """)
+            )
+
+            data = [
+                {
+                    'product_id': row[0],
+                    'product_name': row[1],
+                    'category': row[2],
+                    'brand': row[3],
+                    'price': float(row[4]) if row[4] else 0
+                }
+                for row in result
+            ]
+
+            return jsonify({
+                'success': True,
+                'data': data
+            })
+    except Exception as e:
+        logger.error(f"Error in get_products: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

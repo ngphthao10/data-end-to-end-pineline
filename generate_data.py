@@ -1,5 +1,8 @@
 """
 Generate sample e-commerce data for testing
+Modes:
+- initial: Generate initial dataset once
+- continuous: Continuously generate new data and make changes (for CDC demo)
 """
 from faker import Faker
 from db_config import get_source_engine
@@ -7,8 +10,13 @@ from sqlalchemy import text
 import random
 from datetime import datetime, timedelta
 import logging
+import time
+import sys
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 fake = Faker()
@@ -212,20 +220,8 @@ def generate_orders(engine, num_orders=5000):
         logger.info(f"✓ Total orders in database: {final_count}")
 
 
-def main():
-    """Main data generation function"""
-    logger.info("Starting data generation...")
-
-    engine = get_source_engine()
-
-    # Generate data
-    generate_customers(engine, num_customers=1000)
-    generate_products(engine, num_products=500)
-    generate_orders(engine, num_orders=5000)
-
-    logger.info("✓ Data generation completed!")
-
-    # Print statistics
+def print_statistics(engine):
+    """Print current database statistics"""
     with engine.connect() as conn:
         customers = conn.execute(text("SELECT COUNT(*) FROM customers")).scalar()
         products = conn.execute(text("SELECT COUNT(*) FROM products")).scalar()
@@ -239,5 +235,264 @@ def main():
         logger.info(f"Order Items: {order_items}")
 
 
+def update_random_customer(engine):
+    """Update a random customer's information (for SCD Type 2 demo)"""
+    with engine.connect() as conn:
+        # Get a random customer
+        result = conn.execute(
+            text("SELECT customer_id, first_name, last_name FROM customers ORDER BY RANDOM() LIMIT 1")
+        ).fetchone()
+
+        if not result:
+            return
+
+        customer_id = result[0]
+
+        # Update with new address/city/country
+        new_city = fake.city()
+        new_country = fake.country()
+        new_address = fake.street_address()
+
+        conn.execute(
+            text("""
+                UPDATE customers
+                SET city = :city, country = :country, address = :address
+                WHERE customer_id = :customer_id
+            """),
+            {
+                'customer_id': customer_id,
+                'city': new_city,
+                'country': new_country,
+                'address': new_address
+            }
+        )
+        conn.commit()
+        logger.info(f"✓ Updated customer #{customer_id} - New location: {new_city}, {new_country}")
+
+
+def update_random_product_price(engine):
+    """Update a random product's price (for SCD Type 2 demo)"""
+    with engine.connect() as conn:
+        # Get a random product
+        result = conn.execute(
+            text("SELECT product_id, product_name, price FROM products ORDER BY RANDOM() LIMIT 1")
+        ).fetchone()
+
+        if not result:
+            return
+
+        product_id, product_name, old_price = result[0], result[1], float(result[2])
+
+        # Change price by -20% to +30%
+        price_change = random.uniform(-0.2, 0.3)
+        new_price = round(old_price * (1 + price_change), 2)
+        new_cost = round(new_price * random.uniform(0.4, 0.7), 2)
+
+        conn.execute(
+            text("""
+                UPDATE products
+                SET price = :price, cost = :cost
+                WHERE product_id = :product_id
+            """),
+            {
+                'product_id': product_id,
+                'price': new_price,
+                'cost': new_cost
+            }
+        )
+        conn.commit()
+        logger.info(f"✓ Updated product #{product_id} '{product_name}' - Price: ${old_price} → ${new_price}")
+
+
+def create_new_order(engine):
+    """Create a new order with random items"""
+    with engine.connect() as conn:
+        # Get random customer and products
+        customer_result = conn.execute(
+            text("SELECT customer_id FROM customers ORDER BY RANDOM() LIMIT 1")
+        ).fetchone()
+
+        products = conn.execute(
+            text("SELECT product_id, price FROM products ORDER BY RANDOM() LIMIT 5")
+        ).fetchall()
+
+        if not customer_result or not products:
+            return
+
+        customer_id = customer_result[0]
+        order_date = datetime.now()
+        status = random.choice(['pending', 'processing', 'shipped', 'delivered'])
+
+        # Insert order
+        result = conn.execute(
+            text("""
+                INSERT INTO orders (customer_id, order_date, status, total_amount)
+                VALUES (:customer_id, :order_date, :status, 0)
+                RETURNING order_id
+            """),
+            {
+                'customer_id': customer_id,
+                'order_date': order_date,
+                'status': status
+            }
+        )
+        order_id = result.fetchone()[0]
+
+        # Add 1-3 items to the order
+        num_items = random.randint(1, 3)
+        total_amount = 0
+
+        for i in range(num_items):
+            product_id, price = products[i][0], float(products[i][1])
+            quantity = random.randint(1, 3)
+            unit_price = price
+            line_total = round(quantity * unit_price, 2)
+            total_amount += line_total
+
+            conn.execute(
+                text("""
+                    INSERT INTO order_items (
+                        order_id, product_id, quantity, unit_price, line_total
+                    ) VALUES (
+                        :order_id, :product_id, :quantity, :unit_price, :line_total
+                    )
+                """),
+                {
+                    'order_id': order_id,
+                    'product_id': product_id,
+                    'quantity': quantity,
+                    'unit_price': unit_price,
+                    'line_total': line_total
+                }
+            )
+
+        # Update order total
+        conn.execute(
+            text("UPDATE orders SET total_amount = :total WHERE order_id = :order_id"),
+            {'total': total_amount, 'order_id': order_id}
+        )
+
+        conn.commit()
+        logger.info(f"✓ Created new order #{order_id} - Customer #{customer_id} - Total: ${total_amount:.2f}")
+
+
+def create_new_customer(engine):
+    """Create a new customer"""
+    with engine.connect() as conn:
+        email = f"customer_{fake.user_name()}_{random.randint(1000, 9999)}@example.com"
+
+        try:
+            conn.execute(
+                text("""
+                    INSERT INTO customers (
+                        first_name, last_name, email, phone, address, city, country
+                    ) VALUES (
+                        :first_name, :last_name, :email, :phone, :address, :city, :country
+                    )
+                """),
+                {
+                    'first_name': fake.first_name(),
+                    'last_name': fake.last_name(),
+                    'email': email,
+                    'phone': fake.phone_number()[:20],
+                    'address': fake.street_address(),
+                    'city': fake.city(),
+                    'country': fake.country()
+                }
+            )
+            conn.commit()
+            logger.info(f"✓ Created new customer - {email}")
+        except Exception as e:
+            logger.warning(f"Failed to create customer: {e}")
+
+
+def continuous_mode(engine, interval=5):
+    """
+    Continuously generate data changes for CDC demo
+
+    Args:
+        engine: Database engine
+        interval: Seconds between operations (default: 5)
+    """
+    logger.info("=" * 60)
+    logger.info("CONTINUOUS DATA GENERATION MODE")
+    logger.info(f"Interval: {interval} seconds")
+    logger.info("Press Ctrl+C to stop")
+    logger.info("=" * 60)
+
+    operations = [
+        ('Update Customer', update_random_customer, 0.3),      # 30% chance
+        ('Update Product Price', update_random_product_price, 0.3),  # 30% chance
+        ('Create New Order', create_new_order, 0.3),           # 30% chance
+        ('Create New Customer', create_new_customer, 0.1),     # 10% chance
+    ]
+
+    counter = 0
+
+    try:
+        while True:
+            counter += 1
+            logger.info(f"\n[Iteration #{counter}]")
+
+            # Random operation based on weights
+            rand = random.random()
+            cumulative = 0
+
+            for op_name, op_func, weight in operations:
+                cumulative += weight
+                if rand < cumulative:
+                    try:
+                        op_func(engine)
+                    except Exception as e:
+                        logger.error(f"Error in {op_name}: {e}")
+                    break
+
+            # Wait before next operation
+            time.sleep(interval)
+
+    except KeyboardInterrupt:
+        logger.info("\n\n✓ Stopped continuous generation")
+
+
+def initial_mode(engine):
+    """Generate initial dataset once"""
+    logger.info("=" * 60)
+    logger.info("INITIAL DATA GENERATION MODE")
+    logger.info("=" * 60)
+
+    generate_customers(engine, num_customers=1000)
+    generate_products(engine, num_products=500)
+    generate_orders(engine, num_orders=5000)
+
+    logger.info("✓ Initial data generation completed!")
+    print_statistics(engine)
+
+
+def main():
+    """Main function with mode selection"""
+    # Parse command line arguments
+    mode = 'continuous' if len(sys.argv) > 1 and sys.argv[1] == 'continuous' else 'initial'
+    interval = int(sys.argv[2]) if len(sys.argv) > 2 else 5
+
+    engine = get_source_engine()
+
+    if mode == 'continuous':
+        continuous_mode(engine, interval)
+    else:
+        initial_mode(engine)
+
+
 if __name__ == '__main__':
+    # Print usage
+    if len(sys.argv) > 1 and sys.argv[1] in ['-h', '--help']:
+        print("Usage:")
+        print("  python generate_data.py                    # Initial mode - generate data once")
+        print("  python generate_data.py continuous [interval]  # Continuous mode - generate data continuously")
+        print("")
+        print("Examples:")
+        print("  python generate_data.py                    # Generate initial dataset")
+        print("  python generate_data.py continuous         # Continuous mode (5 sec interval)")
+        print("  python generate_data.py continuous 3       # Continuous mode (3 sec interval)")
+        sys.exit(0)
+
     main()

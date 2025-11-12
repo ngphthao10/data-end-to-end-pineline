@@ -1,219 +1,211 @@
-'use client';
+'use client'
 
-import { useEffect, useState } from 'react';
-import axios from 'axios';
+import { useEffect, useState } from 'react'
+import axios from 'axios'
+import { TrendingUp, Users, Package, DollarSign, RefreshCw } from 'lucide-react'
 
-interface MetricCard {
-  title: string;
-  value: string | number;
-  change?: string;
-  icon: string;
+interface Stats {
+  source: {
+    customers: number
+    products: number
+    orders: number
+  }
+  warehouse: {
+    customers: number
+    products: number
+    orders: number
+  }
+  in_sync: boolean
 }
 
 interface Product {
-  product_id: number;
-  product_name: string;
-  category: string;
-  units_sold: number;
-  total_revenue: number;
+  product_id: number
+  product_name: string
+  category: string
+  units_sold: number
+  total_revenue: number
 }
 
 interface Customer {
-  customer_id: number;
-  customer_name: string;
-  email: string;
-  total_orders: number;
-  lifetime_value: number;
+  customer_id: number
+  customer_name: string
+  email: string
+  total_orders: number
+  lifetime_value: number
 }
 
-interface CategorySales {
-  category: string;
-  revenue: number;
-  units_sold: number;
-}
+export default function Dashboard() {
+  const [stats, setStats] = useState<Stats | null>(null)
+  const [products, setProducts] = useState<Product[]>([])
+  const [customers, setCustomers] = useState<Customer[]>([])
+  const [loading, setLoading] = useState(true)
 
-export default function Home() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [categories, setCategories] = useState<CategorySales[]>([]);
-  const [loading, setLoading] = useState(true);
+  const fetchData = async () => {
+    try {
+      const [statsRes, productsRes, customersRes] = await Promise.all([
+        axios.get('http://localhost:5000/api/cdc/stats'),
+        axios.get('http://localhost:5000/api/metrics/top-products?limit=5'),
+        axios.get('http://localhost:5000/api/metrics/top-customers?limit=5'),
+      ])
+
+      setStats(statsRes.data.data)
+      setProducts(productsRes.data.data || [])
+      setCustomers(customersRes.data.data || [])
+    } catch (error) {
+      console.error('Error fetching data:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [productsRes, customersRes, categoriesRes] = await Promise.all([
-          axios.get('http://localhost:5000/api/metrics/top-products?limit=5'),
-          axios.get('http://localhost:5000/api/metrics/top-customers?limit=5'),
-          axios.get('http://localhost:5000/api/metrics/sales-by-category'),
-        ]);
-
-        setProducts(productsRes.data.data || []);
-        setCustomers(customersRes.data.data || []);
-        setCategories(categoriesRes.data.data || []);
-      } catch (error) {
-        console.error('Error fetching data:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-    const interval = setInterval(fetchData, 30000); // Refresh every 30s
-
-    return () => clearInterval(interval);
-  }, []);
-
-  const totalRevenue = categories.reduce((sum, cat) => sum + cat.revenue, 0);
-  const totalProducts = products.length;
-  const totalCustomers = customers.length;
+    fetchData()
+    const interval = setInterval(fetchData, 5000)
+    return () => clearInterval(interval)
+  }, [])
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      <div className="flex items-center justify-center h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
       </div>
-    );
+    )
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+    <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-white border-b shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <div className="bg-white border-b">
+        <div className="px-6 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">E-commerce Data Warehouse</h1>
-              <p className="text-gray-600 mt-1">Real-time CDC with SCD Type 2</p>
+              <h1 className="text-xl font-semibold text-gray-900">Dashboard</h1>
+              <p className="text-sm text-gray-500 mt-1">Real-time data warehouse overview</p>
             </div>
-            <div className="flex items-center space-x-2">
-              <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span className="text-sm text-gray-600">Live</span>
-            </div>
+            <button
+              onClick={fetchData}
+              className="flex items-center gap-2 px-4 py-2 text-sm bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Refresh
+            </button>
           </div>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Metrics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="card hover:shadow-md transition-shadow">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 mb-1">Total Revenue</p>
-                <p className="text-3xl font-bold text-gray-900">
-                  ${totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                </p>
+      <div className="p-6 space-y-6">
+        {/* Stats Cards */}
+        <div className="grid grid-cols-4 gap-4">
+          <div className="bg-white border rounded-lg p-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-blue-50 rounded-lg">
+                <Users className="w-5 h-5 text-blue-600" />
               </div>
-              <div className="h-12 w-12 bg-primary-100 rounded-full flex items-center justify-center">
-                <span className="text-2xl">💰</span>
+              <div>
+                <div className="text-xs text-gray-600">Customers</div>
+                <div className="text-2xl font-semibold text-gray-900">{stats?.warehouse.customers || 0}</div>
               </div>
             </div>
           </div>
 
-          <div className="card hover:shadow-md transition-shadow">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 mb-1">Top Products</p>
-                <p className="text-3xl font-bold text-gray-900">{totalProducts}</p>
+          <div className="bg-white border rounded-lg p-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-green-50 rounded-lg">
+                <Package className="w-5 h-5 text-green-600" />
               </div>
-              <div className="h-12 w-12 bg-green-100 rounded-full flex items-center justify-center">
-                <span className="text-2xl">📦</span>
+              <div>
+                <div className="text-xs text-gray-600">Products</div>
+                <div className="text-2xl font-semibold text-gray-900">{stats?.warehouse.products || 0}</div>
               </div>
             </div>
           </div>
 
-          <div className="card hover:shadow-md transition-shadow">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 mb-1">Top Customers</p>
-                <p className="text-3xl font-bold text-gray-900">{totalCustomers}</p>
+          <div className="bg-white border rounded-lg p-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-purple-50 rounded-lg">
+                <TrendingUp className="w-5 h-5 text-purple-600" />
               </div>
-              <div className="h-12 w-12 bg-purple-100 rounded-full flex items-center justify-center">
-                <span className="text-2xl">👥</span>
+              <div>
+                <div className="text-xs text-gray-600">Orders</div>
+                <div className="text-2xl font-semibold text-gray-900">{stats?.warehouse.orders || 0}</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white border rounded-lg p-4">
+            <div className="flex items-center gap-3">
+              <div className={`p-2 rounded-lg ${stats?.in_sync ? 'bg-green-50' : 'bg-yellow-50'}`}>
+                <DollarSign className={`w-5 h-5 ${stats?.in_sync ? 'text-green-600' : 'text-yellow-600'}`} />
+              </div>
+              <div>
+                <div className="text-xs text-gray-600">Sync Status</div>
+                <div className={`text-sm font-medium ${stats?.in_sync ? 'text-green-700' : 'text-yellow-700'}`}>
+                  {stats?.in_sync ? 'In Sync' : 'Syncing'}
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Top Products & Customers */}
+        <div className="grid grid-cols-2 gap-6">
           {/* Top Products */}
-          <div className="card">
-            <h2 className="text-xl font-bold mb-4 flex items-center">
-              <span className="mr-2">🏆</span>
-              Top Selling Products
-            </h2>
-            <div className="space-y-4">
-              {products.map((product, index) => (
-                <div key={product.product_id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-                  <div className="flex items-center space-x-3">
-                    <div className="h-8 w-8 bg-primary-100 rounded-full flex items-center justify-center font-bold text-primary-600">
-                      {index + 1}
+          <div className="bg-white border rounded-lg">
+            <div className="px-4 py-3 border-b bg-gray-50">
+              <h2 className="text-sm font-medium text-gray-900">Top Selling Products</h2>
+            </div>
+            <div className="p-4">
+              <div className="space-y-3">
+                {products.map((product, index) => (
+                  <div key={product.product_id} className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-6 h-6 bg-gray-100 rounded flex items-center justify-center text-xs font-medium text-gray-600">
+                        {index + 1}
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium text-gray-900">{product.product_name}</div>
+                        <div className="text-xs text-gray-500">{product.category}</div>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-medium text-gray-900">{product.product_name}</p>
-                      <p className="text-sm text-gray-500">{product.category}</p>
+                    <div className="text-right">
+                      <div className="text-sm font-medium text-gray-900">${product.total_revenue.toLocaleString()}</div>
+                      <div className="text-xs text-gray-500">{product.units_sold} sold</div>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className="font-bold text-gray-900">${product.total_revenue.toLocaleString()}</p>
-                    <p className="text-sm text-gray-500">{product.units_sold} units</p>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
 
           {/* Top Customers */}
-          <div className="card">
-            <h2 className="text-xl font-bold mb-4 flex items-center">
-              <span className="mr-2">⭐</span>
-              Top Customers
-            </h2>
-            <div className="space-y-4">
-              {customers.map((customer, index) => (
-                <div key={customer.customer_id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-                  <div className="flex items-center space-x-3">
-                    <div className="h-8 w-8 bg-purple-100 rounded-full flex items-center justify-center font-bold text-purple-600">
-                      {index + 1}
+          <div className="bg-white border rounded-lg">
+            <div className="px-4 py-3 border-b bg-gray-50">
+              <h2 className="text-sm font-medium text-gray-900">Top Customers</h2>
+            </div>
+            <div className="p-4">
+              <div className="space-y-3">
+                {customers.map((customer, index) => (
+                  <div key={customer.customer_id} className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-6 h-6 bg-gray-100 rounded flex items-center justify-center text-xs font-medium text-gray-600">
+                        {index + 1}
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium text-gray-900">{customer.customer_name}</div>
+                        <div className="text-xs text-gray-500">{customer.email}</div>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-medium text-gray-900">{customer.customer_name}</p>
-                      <p className="text-sm text-gray-500">{customer.email}</p>
+                    <div className="text-right">
+                      <div className="text-sm font-medium text-gray-900">${customer.lifetime_value.toLocaleString()}</div>
+                      <div className="text-xs text-gray-500">{customer.total_orders} orders</div>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className="font-bold text-gray-900">${customer.lifetime_value.toLocaleString()}</p>
-                    <p className="text-sm text-gray-500">{customer.total_orders} orders</p>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
-
-          {/* Sales by Category */}
-          <div className="card lg:col-span-2">
-            <h2 className="text-xl font-bold mb-4 flex items-center">
-              <span className="mr-2">📊</span>
-              Sales by Category
-            </h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {categories.map((category) => (
-                <div key={category.category} className="p-4 bg-gradient-to-br from-primary-50 to-primary-100 rounded-lg">
-                  <p className="text-sm text-gray-600 mb-1">{category.category}</p>
-                  <p className="text-2xl font-bold text-gray-900">${category.revenue.toLocaleString()}</p>
-                  <p className="text-xs text-gray-500 mt-1">{category.units_sold} units</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="mt-8 text-center text-sm text-gray-500">
-          <p>Powered by CDC (Change Data Capture) with Debezium + Kafka + PostgreSQL</p>
-          <p className="mt-1">Real-time data warehouse with SCD Type 2 implementation</p>
         </div>
       </div>
     </div>
-  );
+  )
 }

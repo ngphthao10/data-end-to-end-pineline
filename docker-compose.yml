@@ -90,35 +90,6 @@ services:
     networks:
       - cdc-network
 
-  # Stream Processing - Apache Flink (Optional)
-  jobmanager:
-    image: flink:1.18-java11
-    container_name: flink-jobmanager
-    ports:
-      - "8081:8081"
-    command: jobmanager
-    environment:
-      - |
-        FLINK_PROPERTIES=
-        jobmanager.rpc.address: jobmanager
-        taskmanager.numberOfTaskSlots: 2
-    networks:
-      - cdc-network
-
-  taskmanager:
-    image: flink:1.18-java11
-    container_name: flink-taskmanager
-    depends_on:
-      - jobmanager
-    command: taskmanager
-    environment:
-      - |
-        FLINK_PROPERTIES=
-        jobmanager.rpc.address: jobmanager
-        taskmanager.numberOfTaskSlots: 2
-    networks:
-      - cdc-network
-
   # ETL Pipeline - Python Worker
   etl-worker:
     build:
@@ -147,7 +118,8 @@ services:
       - cdc-network
     command: python /app/etl_pipeline.py
 
-  # Flask API - Business Metrics
+
+  # Flask API - Business Metrics (Optional)
   api:
     build:
       context: .
@@ -158,12 +130,18 @@ services:
     volumes:
       - .:/app
     environment:
+      - SOURCE_DB_HOST=postgres-source
+      - SOURCE_DB_PORT=5432
+      - SOURCE_DB_NAME=ecommerce_source
+      - SOURCE_DB_USER=postgres
+      - SOURCE_DB_PASSWORD=postgres
       - WAREHOUSE_DB_HOST=postgres-warehouse
       - WAREHOUSE_DB_PORT=5432
       - WAREHOUSE_DB_NAME=ecommerce_warehouse
       - WAREHOUSE_DB_USER=postgres
       - WAREHOUSE_DB_PASSWORD=postgres
     depends_on:
+      - postgres-source
       - postgres-warehouse
     networks:
       - cdc-network
@@ -172,17 +150,21 @@ services:
   # Frontend - Next.js Dashboard
   frontend:
     build:
-      context: .
-      dockerfile: Dockerfile.frontend
+      context: ./frontend
+      dockerfile: ../Dockerfile.frontend
     container_name: nextjs-frontend
     ports:
       - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:5000
     depends_on:
       - api
     networks:
       - cdc-network
-    environment:
-      - NODE_ENV=production
 
 volumes:
   postgres-source-data:

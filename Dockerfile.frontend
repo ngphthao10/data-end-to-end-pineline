@@ -1,39 +1,13 @@
-FROM node:18-alpine AS base
+FROM node:18-alpine
 
-# Install dependencies only when needed
-FROM base AS deps
 WORKDIR /app
 
-COPY frontend/package.json frontend/package-lock.json* ./
-RUN npm ci
+# Copy package files
+COPY package.json package-lock.json* ./
 
-# Rebuild the source code only when needed
-FROM base AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY frontend ./
-RUN npm run build
-
-# Production image, copy all the files and run next
-FROM base AS runner
-WORKDIR /app
-
-ENV NODE_ENV production
-
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
-
-# Copy files
-COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/public ./public
-
-USER nextjs
+# Install dependencies
+RUN npm install
 
 EXPOSE 3000
 
-ENV PORT 3000
-ENV HOSTNAME "0.0.0.0"
-
-CMD ["npm", "start"]
+CMD ["npm", "run", "dev"]
