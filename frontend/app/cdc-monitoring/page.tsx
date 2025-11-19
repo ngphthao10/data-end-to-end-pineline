@@ -18,6 +18,11 @@ interface Stats {
     products: number
     orders: number
   }
+  sync_percentages: {
+    customers: number
+    products: number
+    orders: number
+  }
   in_sync: boolean
 }
 
@@ -127,15 +132,15 @@ export default function CDCMonitoring() {
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-gray-600">Customers</span>
-                <span className="font-medium text-gray-900">{stats?.source.customers}</span>
+                <span className="font-medium text-gray-900">{stats?.source.customers.toLocaleString()}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-gray-600">Products</span>
-                <span className="font-medium text-gray-900">{stats?.source.products}</span>
+                <span className="font-medium text-gray-900">{stats?.source.products.toLocaleString()}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-gray-600">Orders</span>
-                <span className="font-medium text-gray-900">{stats?.source.orders}</span>
+                <span className="font-medium text-gray-900">{stats?.source.orders.toLocaleString()}</span>
               </div>
             </div>
           </div>
@@ -168,15 +173,50 @@ export default function CDCMonitoring() {
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-gray-600">Customers</span>
-                <span className="font-medium text-gray-900">{stats?.warehouse.customers}</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-gray-900">{stats?.warehouse.customers.toLocaleString()}</span>
+                  {stats?.sync_percentages && (
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${
+                      stats.sync_percentages.customers === 100
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-amber-100 text-amber-700'
+                    }`}>
+                      {stats.sync_percentages.customers.toFixed(0)}%
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-gray-600">Products</span>
-                <span className="font-medium text-gray-900">{stats?.warehouse.products}</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-gray-900">{stats?.warehouse.products.toLocaleString()}</span>
+                  {stats?.sync_percentages && (
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${
+                      stats.sync_percentages.products === 100
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-amber-100 text-amber-700'
+                    }`}>
+                      {stats.sync_percentages.products.toFixed(0)}%
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-gray-600">Orders</span>
-                <span className="font-medium text-gray-900">{stats?.warehouse.orders}</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-gray-900">{stats?.warehouse.orders.toLocaleString()}</span>
+                  {stats?.sync_percentages && (
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${
+                      stats.sync_percentages.orders >= 95
+                        ? 'bg-green-100 text-green-700'
+                        : stats.sync_percentages.orders >= 80
+                        ? 'bg-amber-100 text-amber-700'
+                        : 'bg-red-100 text-red-700'
+                    }`}>
+                      {stats.sync_percentages.orders.toFixed(0)}%
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           </div>

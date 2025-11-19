@@ -42,7 +42,7 @@ services:
       - "-c"
       - "wal_level=logical"  # Required for CDC
     volumes:
-      - postgres-source-data:/var/lib/postgresql/data
+      - ./postgres_data_source:/var/lib/postgresql/data  # Local bind mount
       - ./init_scripts:/docker-entrypoint-initdb.d
     networks:
       - cdc-network
@@ -52,7 +52,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # Target Warehouse - Dimensional data warehouse
+  # Target Warehouse 
   postgres-warehouse:
     image: postgres:15
     container_name: postgres-warehouse
@@ -63,7 +63,7 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
     volumes:
-      - postgres-warehouse-data:/var/lib/postgresql/data
+      - ./postgres_data_warehouse:/var/lib/postgresql/data  # Local bind mount
     networks:
       - cdc-network
     healthcheck:
@@ -165,10 +165,6 @@ services:
       - api
     networks:
       - cdc-network
-
-volumes:
-  postgres-source-data:
-  postgres-warehouse-data:
 
 networks:
   cdc-network:

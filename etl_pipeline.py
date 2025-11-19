@@ -33,7 +33,7 @@ class ETLPipeline:
                 bootstrap_servers=KAFKA_CONFIG['bootstrap_servers'],
                 group_id=KAFKA_CONFIG['group_id'],
                 auto_offset_reset=KAFKA_CONFIG['auto_offset_reset'],
-                value_deserializer=lambda m: json.loads(m.decode('utf-8')),
+                value_deserializer=lambda m: json.loads(m.decode('utf-8')) if m is not None else None,
                 enable_auto_commit=True
             )
             logger.info("Kafka consumer started successfully")
@@ -217,6 +217,11 @@ class ETLPipeline:
             for message in self.consumer:
                 topic = message.topic
                 event = message.value
+
+                # Skip None/tombstone messages
+                if event is None:
+                    logger.warning(f"Received None/tombstone message from {topic}, skipping")
+                    continue
 
                 logger.info(f"✓ Received event from {topic} - First 200 chars: {str(event)[:200]}")
 

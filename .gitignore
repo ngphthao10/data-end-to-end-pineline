@@ -39,9 +39,16 @@ build/
 *.db
 *.sqlite
 
+# PostgreSQL data directories (local mount)
+postgres_data_source/
+postgres_data_warehouse/
+postgres_export_*/
+
 # Docker
 .docker/
 
 # OS
 .DS_Store
 Thumbs.db
+
+scripts

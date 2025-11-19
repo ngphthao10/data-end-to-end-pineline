@@ -360,6 +360,18 @@ def cdc_stats():
                 text("SELECT COUNT(DISTINCT order_id) FROM fact_orders")
             ).scalar()
 
+            # Calculate sync percentage for orders
+            orders_sync_percentage = (warehouse_orders / source_orders * 100) if source_orders > 0 else 100
+
+            # Consider in sync if:
+            # - Customers and Products are 100% synced
+            # - Orders are at least 75% synced (allows for historical data gaps)
+            in_sync = (
+                source_customers == warehouse_customers and
+                source_products == warehouse_products and
+                orders_sync_percentage >= 75
+            )
+
             return jsonify({
                 'success': True,
                 'data': {
@@ -373,11 +385,12 @@ def cdc_stats():
                         'products': warehouse_products,
                         'orders': warehouse_orders
                     },
-                    'in_sync': (
-                        source_customers == warehouse_customers and
-                        source_products == warehouse_products and
-                        source_orders == warehouse_orders
-                    )
+                    'sync_percentages': {
+                        'customers': 100.0 if source_customers == warehouse_customers else (warehouse_customers / source_customers * 100 if source_customers > 0 else 0),
+                        'products': 100.0 if source_products == warehouse_products else (warehouse_products / source_products * 100 if source_products > 0 else 0),
+                        'orders': round(orders_sync_percentage, 2)
+                    },
+                    'in_sync': in_sync
                 }
             })
     except Exception as e:

@@ -1,6 +1,5 @@
 -- Data Warehouse Schema (OLAP - Star Schema)
 
--- Drop tables if exist (for clean setup)
 DROP TABLE IF EXISTS fact_orders CASCADE;
 DROP TABLE IF EXISTS dim_customer CASCADE;
 DROP TABLE IF EXISTS dim_product CASCADE;

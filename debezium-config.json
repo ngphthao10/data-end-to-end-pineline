@@ -12,11 +12,12 @@
     "plugin.name": "pgoutput",
     "publication.autocreate.mode": "filtered",
     "slot.name": "debezium_slot",
-    "snapshot.mode": "always",
+    "snapshot.mode": "initial",
     "topic.prefix": "ecommerce",
     "key.converter": "org.apache.kafka.connect.json.JsonConverter",
     "value.converter": "org.apache.kafka.connect.json.JsonConverter",
     "key.converter.schemas.enable": "false",
-    "value.converter.schemas.enable": "false"
+    "value.converter.schemas.enable": "false",
+    "decimal.handling.mode": "double"
   }
 }
