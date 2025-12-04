@@ -147,6 +147,32 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Quick Links */}
+        <div className="grid grid-cols-3 gap-4">
+          <a
+            href="/analytics"
+            className="bg-white border rounded-lg p-4 hover:shadow-md transition-shadow"
+          >
+            <h3 className="text-sm font-medium text-gray-900 mb-1">📊 Analytics Dashboard</h3>
+            <p className="text-xs text-gray-500">View sales trends and revenue analytics</p>
+          </a>
+          <a
+            href="/cdc-monitoring"
+            className="bg-white border rounded-lg p-4 hover:shadow-md transition-shadow"
+          >
+            <h3 className="text-sm font-medium text-gray-900 mb-1">🔄 CDC Monitoring</h3>
+            <p className="text-xs text-gray-500">Monitor CDC sync status and recent changes</p>
+          </a>
+          <a
+            href="/offset-monitoring"
+            className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-lg p-4 hover:shadow-md transition-shadow"
+          >
+            <h3 className="text-sm font-medium text-blue-900 mb-1">🎯 Offset Monitoring</h3>
+            <p className="text-xs text-blue-700">Track Kafka offsets & failed messages</p>
+            <span className="inline-block mt-2 text-xs font-semibold text-blue-600 bg-blue-100 px-2 py-1 rounded">NEW</span>
+          </a>
+        </div>
+
         {/* Top Products & Customers */}
         <div className="grid grid-cols-2 gap-6">
           {/* Top Products */}

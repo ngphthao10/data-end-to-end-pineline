@@ -140,3 +140,17 @@ docker-compose up -d
 - API có volume mount: sửa code API cần restart container
 - ETL worker chạy liên tục, theo dõi Kafka messages
 - Dữ liệu trong database được lưu trong Docker volumes, không mất khi restart
+
+
+chỉ định worker node
+
+tracking được record process lỗi
+
+
+role, ngữ cảnh msk
+
+kafka principle :chi phí, bảo mật
+
+![alt text](image.png)
+
+## Sơ đồ luồng xử lý tổng quát trong hệ thống

@@ -2,13 +2,16 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import sys
 import os
+import subprocess
+import json
 
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from db_config import get_warehouse_engine, get_source_engine
+from db_config import get_warehouse_engine, get_source_engine, KAFKA_CONFIG
 from sqlalchemy import text
 import logging
+from datetime import datetime
 
 app = Flask(__name__)
 CORS(app)
@@ -31,7 +34,10 @@ def home():
             '/api/metrics/top-customers': 'Get top customers by revenue',
             '/api/metrics/sales-by-category': 'Get sales by category',
             '/api/customers/<customer_id>/history': 'Get customer history (SCD)',
-            '/api/products/<product_id>/history': 'Get product price history (SCD)'
+            '/api/products/<product_id>/history': 'Get product price history (SCD)',
+            '/api/monitoring/kafka-offsets': 'Get Kafka consumer offset status',
+            '/api/monitoring/failed-messages': 'Get failed messages',
+            '/api/monitoring/failed-messages/retry': 'Retry failed messages'
         }
     })
 
@@ -572,6 +578,344 @@ def get_products():
             })
     except Exception as e:
         logger.error(f"Error in get_products: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/monitoring/kafka-offsets', methods=['GET'])
+def kafka_offsets():
+    """Get Kafka consumer offset status and lag from failed_messages summary"""
+    try:
+        # Since kafka tools are not available in API container,
+        # we'll provide a simpler view based on failed messages
+        with warehouse_engine.connect() as conn:
+            # Get unique topics from failed messages
+            result = conn.execute(
+                text("""
+                    SELECT
+                        topic,
+                        partition,
+                        COUNT(*) as failed_count,
+                        MIN(message_offset) as min_offset,
+                        MAX(message_offset) as max_offset
+                    FROM failed_messages
+                    WHERE status IN ('pending', 'retrying')
+                    GROUP BY topic, partition
+                    ORDER BY topic, partition
+                """)
+            )
+
+            data = []
+            for row in result:
+                data.append({
+                    'topic': row[0],
+                    'partition': row[1],
+                    'failed_count': row[2],
+                    'min_offset': row[3],
+                    'max_offset': row[4],
+                    'lag': row[2]  # Use failed count as proxy for lag
+                })
+
+        # If no failed messages, show a healthy state
+        if not data:
+            # Show common topics as healthy
+            data = [
+                {'topic': 'ecommerce.public.customers', 'partition': 0, 'failed_count': 0, 'lag': 0},
+                {'topic': 'ecommerce.public.products', 'partition': 0, 'failed_count': 0, 'lag': 0},
+                {'topic': 'ecommerce.public.orders', 'partition': 0, 'failed_count': 0, 'lag': 0},
+                {'topic': 'ecommerce.public.order_items', 'partition': 0, 'failed_count': 0, 'lag': 0},
+            ]
+
+        return jsonify({
+            'success': True,
+            'consumer_group': KAFKA_CONFIG['group_id'],
+            'note': 'Offset data based on failed messages. For detailed offset info, use Kafka tools directly.',
+            'data': data
+        })
+
+    except Exception as e:
+        logger.error(f"Error in kafka_offsets: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/monitoring/failed-messages', methods=['GET'])
+def get_failed_messages():
+    """Get all failed messages with pagination"""
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 50, type=int)
+    status = request.args.get('status', None, type=str)
+
+    try:
+        with warehouse_engine.connect() as conn:
+            # Build WHERE clause
+            where_clause = ""
+            params = {}
+
+            if status:
+                where_clause = "WHERE status = :status"
+                params['status'] = status
+
+            # Get total count
+            count_query = f"SELECT COUNT(*) FROM failed_messages {where_clause}"
+            total = conn.execute(text(count_query), params).scalar()
+
+            # Get paginated data
+            offset = (page - 1) * per_page
+            params['limit'] = per_page
+            params['offset'] = offset
+
+            result = conn.execute(
+                text(f"""
+                    SELECT
+                        failed_message_id,
+                        topic,
+                        partition,
+                        message_offset,
+                        message_timestamp,
+                        error_type,
+                        error_message,
+                        retry_count,
+                        max_retries,
+                        status,
+                        failed_at,
+                        last_retry_at,
+                        next_retry_at
+                    FROM failed_messages
+                    {where_clause}
+                    ORDER BY failed_at DESC
+                    LIMIT :limit OFFSET :offset
+                """),
+                params
+            )
+
+            data = [
+                {
+                    'id': row[0],
+                    'topic': row[1],
+                    'partition': row[2],
+                    'offset': row[3],
+                    'timestamp': str(row[4]) if row[4] else None,
+                    'error_type': row[5],
+                    'error_message': row[6],
+                    'retry_count': row[7],
+                    'max_retries': row[8],
+                    'status': row[9],
+                    'failed_at': str(row[10]),
+                    'last_retry_at': str(row[11]) if row[11] else None,
+                    'next_retry_at': str(row[12]) if row[12] else None
+                }
+                for row in result
+            ]
+
+            return jsonify({
+                'success': True,
+                'data': data,
+                'pagination': {
+                    'page': page,
+                    'per_page': per_page,
+                    'total': total,
+                    'pages': (total + per_page - 1) // per_page
+                }
+            })
+
+    except Exception as e:
+        logger.error(f"Error in get_failed_messages: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/monitoring/failed-messages/summary', methods=['GET'])
+def failed_messages_summary():
+    """Get summary of failed messages"""
+    try:
+        with warehouse_engine.connect() as conn:
+            result = conn.execute(
+                text("""
+                    SELECT * FROM v_failed_messages_summary
+                """)
+            )
+
+            data = [
+                {
+                    'topic': row[0],
+                    'status': row[1],
+                    'error_type': row[2],
+                    'message_count': row[3],
+                    'first_failure': str(row[4]) if row[4] else None,
+                    'last_failure': str(row[5]) if row[5] else None,
+                    'avg_retry_count': float(row[6]) if row[6] else 0,
+                    'dead_letter_count': row[7]
+                }
+                for row in result
+            ]
+
+            # Get total counts by status
+            status_counts = conn.execute(
+                text("""
+                    SELECT status, COUNT(*) as count
+                    FROM failed_messages
+                    GROUP BY status
+                """)
+            )
+
+            status_data = {row[0]: row[1] for row in status_counts}
+
+            return jsonify({
+                'success': True,
+                'summary': data,
+                'status_counts': status_data
+            })
+
+    except Exception as e:
+        logger.error(f"Error in failed_messages_summary: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/monitoring/failed-messages/<int:message_id>', methods=['GET'])
+def get_failed_message_detail(message_id):
+    """Get detailed information about a specific failed message"""
+    try:
+        with warehouse_engine.connect() as conn:
+            result = conn.execute(
+                text("""
+                    SELECT
+                        failed_message_id,
+                        topic,
+                        partition,
+                        message_offset,
+                        message_timestamp,
+                        message_key,
+                        message_value,
+                        error_type,
+                        error_message,
+                        error_stacktrace,
+                        retry_count,
+                        max_retries,
+                        last_retry_at,
+                        next_retry_at,
+                        status,
+                        resolution_notes,
+                        failed_at,
+                        resolved_at
+                    FROM failed_messages
+                    WHERE failed_message_id = :id
+                """),
+                {'id': message_id}
+            ).fetchone()
+
+            if not result:
+                return jsonify({'success': False, 'error': 'Message not found'}), 404
+
+            data = {
+                'id': result[0],
+                'topic': result[1],
+                'partition': result[2],
+                'offset': result[3],
+                'timestamp': str(result[4]) if result[4] else None,
+                'message_key': result[5],
+                'message_value': result[6],  # This is JSONB
+                'error_type': result[7],
+                'error_message': result[8],
+                'error_stacktrace': result[9],
+                'retry_count': result[10],
+                'max_retries': result[11],
+                'last_retry_at': str(result[12]) if result[12] else None,
+                'next_retry_at': str(result[13]) if result[13] else None,
+                'status': result[14],
+                'resolution_notes': result[15],
+                'failed_at': str(result[16]),
+                'resolved_at': str(result[17]) if result[17] else None
+            }
+
+            return jsonify({
+                'success': True,
+                'data': data
+            })
+
+    except Exception as e:
+        logger.error(f"Error in get_failed_message_detail: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/monitoring/failed-messages/<int:message_id>/retry', methods=['POST'])
+def retry_failed_message(message_id):
+    """Retry a specific failed message"""
+    try:
+        # Import retry logic
+        from retry_failed_messages import FailedMessageRetryProcessor
+
+        processor = FailedMessageRetryProcessor()
+
+        # Get the message
+        with warehouse_engine.connect() as conn:
+            result = conn.execute(
+                text("""
+                    SELECT message_value, topic
+                    FROM failed_messages
+                    WHERE failed_message_id = :id AND status = 'pending'
+                """),
+                {'id': message_id}
+            ).fetchone()
+
+            if not result:
+                return jsonify({
+                    'success': False,
+                    'error': 'Message not found or not in pending status'
+                }), 404
+
+            message_value = result[0]
+            topic = result[1]
+
+            # Parse and retry
+            event = json.loads(message_value) if isinstance(message_value, str) else message_value
+
+            # Process based on topic
+            if topic == 'ecommerce.public.customers':
+                processor.process_customer_event(event)
+            elif topic == 'ecommerce.public.products':
+                processor.process_product_event(event)
+
+            # Mark as resolved
+            processor.mark_as_resolved(message_id)
+
+            return jsonify({
+                'success': True,
+                'message': f'Message {message_id} retried successfully'
+            })
+
+    except Exception as e:
+        logger.error(f"Error retrying message {message_id}: {e}")
+        # Increment retry count
+        try:
+            from retry_failed_messages import FailedMessageRetryProcessor
+            processor = FailedMessageRetryProcessor()
+            processor.increment_retry_count(message_id)
+        except:
+            pass
+
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/monitoring/failed-messages/retry-all', methods=['POST'])
+def retry_all_failed_messages():
+    """Retry all pending failed messages"""
+    try:
+        # Run retry script
+        result = subprocess.run(
+            ['python', '/app/retry_failed_messages.py'],
+            capture_output=True,
+            text=True,
+            timeout=300  # 5 minutes timeout
+        )
+
+        return jsonify({
+            'success': result.returncode == 0,
+            'output': result.stdout,
+            'errors': result.stderr if result.returncode != 0 else None
+        })
+
+    except subprocess.TimeoutExpired:
+        return jsonify({'success': False, 'error': 'Retry process timeout'}), 500
+    except Exception as e:
+        logger.error(f"Error in retry_all_failed_messages: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

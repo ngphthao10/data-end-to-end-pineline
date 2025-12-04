@@ -52,3 +52,6 @@ postgres_export_*/
 Thumbs.db
 
 scripts
+
+*.md
+*.png
